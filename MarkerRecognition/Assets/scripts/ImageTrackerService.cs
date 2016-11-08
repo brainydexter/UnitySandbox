@@ -6,16 +6,32 @@ using System.Collections.Generic;
 
 using Vuforia;
 
-/*
- * - when the image is tracked, lost => event is generated 
- */
-
+namespace DemoVuforia
+{
+/// <summary>
+/// Tracking status.
+/// </summary>
 public enum TrackingStatus
 {
+	/// <summary>
+	/// Tracker is found
+	/// </summary>
 	FOUND,
+
+	/// <summary>
+	/// Tracking lost and not found
+	/// </summary>
 	NOT_FOUND
+
+	/*
+	 * Could potentially add more states for transition if the user needs
+	 */
 }
 
+/// <summary>
+/// Image interface tracker service. 
+/// Interface allows the implementation to be easily swapped with something else
+/// </summary>
 public interface IImageTrackerService
 {
 //	#region Image tracking
@@ -24,36 +40,77 @@ public interface IImageTrackerService
 //	#endregion
 
 	#region Event Handling
+
+	/// <summary>
+	/// Registers the callback for the given trackable and tracking event type - found/not found
+	/// </summary>
+	/// <param name="trackableName">Trackable name.</param>
+	/// <param name="status">Status.</param>
+	/// <param name="eventHandler">Event handler.</param>
 	void RegisterTrackerEvent (string trackableName, TrackingStatus status, Action<Transform> eventHandler);
+
+	/// <summary>
+	/// Unregisters the callback for the given trackable and tracking event type - found/not found
+	/// </summary>
+	/// <param name="trackableName">Trackable name.</param>
+	/// <param name="status">Status.</param>
+	/// <param name="eventHandler">Event handler.</param>
 	void UnregisterTrackerEvent (string trackableName, TrackingStatus status, Action<Transform> eventHandler);
 
-	bool ContainsTracker(string trackableName);
+	/// <summary>
+	/// Determines whether the service is tracking the specified image(trackableName)
+	/// </summary>
+	/// <returns><c>true</c> if the service is tracking the specified trackableName; otherwise, <c>false</c>.</returns>
+	/// <param name="trackableName">Trackable name.</param>
+	bool IsTracking(string trackableName);
 	#endregion
 }
 
-public class ImageTrackerService : Singleton<ImageTrackerService>, IImageTrackerService {
+/// <summary>
+/// Image tracker service implementation
+/// </summary>
+public sealed class ImageTrackerService : Singleton<ImageTrackerService>, IImageTrackerService {
 
-	bool printed = false;
-	
+	#region Mono Methods
+
 	void Update () {
 
-		if (!printed) {
+		// doing init here since trackable behaviors were not showing up at Start().
+		// Ideally, this should be done during init time
+
+		if (!inited) {
 			var trackableBehaviors = TrackerManager.Instance.GetStateManager ().GetTrackableBehaviours ();
 
+			// adding event handling tracker
 			foreach (var item in trackableBehaviors) {
 				Debug.Log (item.TrackableName);
+
+				// updating the tracker game object
 				item.gameObject.name = item.TrackableName + " Tracker";
+
 				var trackingHandler = new TrackingEventHandler (item.transform);
 
+				// associating tracking handler with the tracker
 				item.RegisterTrackableEventHandler (trackingHandler);
 
+				// storing a reference of the tracker with handler
 				eventHandlers.Add (item.TrackableName, trackingHandler);
 			}
 
-			printed = true;
+			inited = true;
 		}
 	}
 
+	#endregion
+
+	#region IImageTrackerService Methods
+
+	/// <summary>
+	/// Registers the callback for the given trackable and tracking event type - found/not found
+	/// </summary>
+	/// <param name="trackableName">Trackable name.</param>
+	/// <param name="status">Status.</param>
+	/// <param name="eventHandler">Event handler.</param>
 	public void RegisterTrackerEvent (string trackableName, TrackingStatus status, Action<Transform> subscriber)
 	{
 		Debug.Assert (subscriber != null, "[ImageTrackerService]: callback cannot be null");
@@ -69,6 +126,12 @@ public class ImageTrackerService : Singleton<ImageTrackerService>, IImageTracker
 		}
 	}
 
+	/// <summary>
+	/// Unregisters the callback for the given trackable and tracking event type - found/not found
+	/// </summary>
+	/// <param name="trackableName">Trackable name.</param>
+	/// <param name="status">Status.</param>
+	/// <param name="eventHandler">Event handler.</param>
 	public void UnregisterTrackerEvent (string trackableName, TrackingStatus status, Action<Transform> subscriber)
 	{
 		Debug.Assert (subscriber != null, "[ImageTrackerService]: callback cannot be null");
@@ -84,77 +147,26 @@ public class ImageTrackerService : Singleton<ImageTrackerService>, IImageTracker
 		}
 	}
 
-	public bool ContainsTracker(string trackableName){
+	/// <summary>
+	/// Determines whether the service is tracking the specified image(trackableName)
+	/// </summary>
+	/// <returns><c>true</c> if the service is tracking the specified trackableName; otherwise, <c>false</c>.</returns>
+	/// <param name="trackableName">Trackable name.</param>
+	public bool IsTracking(string trackableName){
 //		Debug.Assert (eventHandlers.Count != 0, "[ImageTrackerService]: Service is not tracking any trackers");
 		return eventHandlers.ContainsKey (trackableName);
 	}
 
+	#endregion
+
 	#region members
 
+	/// <summary>
+	/// The event handlers mapping for O(1) lookup
+	/// </summary>
 	private Dictionary<string, TrackingEventHandler> eventHandlers = new Dictionary<string, TrackingEventHandler> ();
+
+	private bool inited = false;
 	#endregion
 }
-
-public class TrackingEventHandler : ITrackableEventHandler
-{
-	public void AddTrackingFoundCallback(Action<Transform> subscriber){
-		Debug.Assert (subscriber != null, "[TrackingEventHandler]: subscriber callback cannot be null");
-
-		onTrackingFound += subscriber;
-	}
-
-	public void AddTrackingLostCallback(Action<Transform> subscriber){
-		Debug.Assert (subscriber != null, "[TrackingEventHandler]: subscriber callback cannot be null");
-
-		onTrackingNotFound += subscriber;
-	}
-
-	public void RemoveTrackingFoundCallback(Action<Transform> subscriber){
-		Debug.Assert (subscriber != null, "[TrackingEventHandler]: subscriber callback cannot be null");
-
-		onTrackingFound -= subscriber;
-	}
-
-	public void RemoveTrackingLostCallback(Action<Transform> subscriber){
-		Debug.Assert (subscriber != null, "[TrackingEventHandler]: subscriber callback cannot be null");
-
-		onTrackingNotFound -= subscriber;
-	}
-
-	public TrackingEventHandler (Transform transform)
-	{
-		parentTransform = transform;
-
-		onTrackingFound += t => Debug.Log ("Found: " + t.gameObject.name);
-		onTrackingNotFound += t => Debug.Log ("Not Found: " + t.gameObject.name);
-	}
-
-	#region ITrackableEventHandler implementation
-	public void OnTrackableStateChanged (TrackableBehaviour.Status previousStatus, TrackableBehaviour.Status newStatus)
-	{
-//		Debug.Log (newStatus);
-		if (newStatus == TrackableBehaviour.Status.DETECTED ||
-			newStatus == TrackableBehaviour.Status.TRACKED ||
-			newStatus == TrackableBehaviour.Status.EXTENDED_TRACKED)
-		{
-			onTrackingFound.Invoke(parentTransform);
-		}
-		else
-		{
-			if(previousStatus == TrackableBehaviour.Status.DETECTED ||
-				previousStatus == TrackableBehaviour.Status.TRACKED ||
-				previousStatus == TrackableBehaviour.Status.EXTENDED_TRACKED)
-				onTrackingNotFound.Invoke (parentTransform);
-		}
-	}
-	#endregion
-
-	#region members
-
-	private Action<Transform> onTrackingFound;
-	private Action<Transform> onTrackingNotFound;
-
-	private Transform parentTransform;
-
-	#endregion
 }
